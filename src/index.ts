@@ -6,6 +6,7 @@ import {
 } from './githubHelper';
 import { GitlabHelper, GitLabIssue, GitLabMilestone } from './gitlabHelper';
 import settings from '../settings';
+import { readProjectIdsFromCsv } from './utils';
 
 import { Octokit as GitHubApi } from '@octokit/rest';
 import { throttling } from '@octokit/plugin-throttling';
@@ -94,16 +95,41 @@ const githubHelper = new GithubHelper(
   settings.useIssuesForAllMergeRequests
 );
 
+let projectIds: number[];
+
+if (settings.gitlab.projectIdCsvFile) {
+  console.log(`Loading project IDs from CSV: ${settings.gitlab.projectIdCsvFile}`);
+  const columnIndex = settings.gitlab.projectIdCsvColumn !== undefined 
+    ? settings.gitlab.projectIdCsvColumn 
+    : 0; // Default to first column
+  projectIds = readProjectIdsFromCsv(settings.gitlab.projectIdCsvFile, columnIndex);
+} else {
+  projectIds = Array.isArray(settings.gitlab.projectId)
+    ? settings.gitlab.projectId
+    : [settings.gitlab.projectId];
+}
+
 // If no project id is given in settings.js, just return
 // all of the projects that this user is associated with.
-if (!settings.gitlab.projectId) {
+if (projectIds.length === 0 || (projectIds.length === 1 && !projectIds[0])) {
   gitlabHelper.listProjects();
 } else {
-  // user has chosen a project
-  if (settings.github.recreateRepo === true) {
-    recreate();
+  for (const projectId of projectIds) {
+      console.log(`\n\n${'='.repeat(60)}`);
+      console.log(`Processing Project ID: ${projectId}`);
+      console.log(`${'='.repeat(60)}\n`);
+      
+      const originalProjectId = settings.gitlab.projectId;
+      settings.gitlab.projectId = projectId as number;
+      gitlabHelper.gitlabProjectId = projectId;
+        
+      if (settings.github.recreateRepo === true) {
+        recreate();
+      }
+      migrate();
+      settings.gitlab.projectId = originalProjectId;
   }
-  migrate();
+
 }
 
 // ----------------------------------------------------------------------------
@@ -192,7 +218,7 @@ async function migrate() {
 
   try {
     await githubHelper.registerRepoId();
-    await gitlabHelper.registerProjectPath(settings.gitlab.projectId);
+    await gitlabHelper.registerProjectPath(settings.gitlab.projectId as number);
 
     if (settings.transfer.description) {
       await transferDescription();
@@ -245,7 +271,7 @@ async function migrate() {
 async function transferDescription() {
   inform('Transferring Description');
 
-  let project = await gitlabApi.Projects.show(settings.gitlab.projectId);
+  let project = await gitlabApi.Projects.show(settings.gitlab.projectId as number);
 
   if (project.description) {
     await githubHelper.updateRepositoryDescription(project.description);
@@ -266,7 +292,7 @@ async function transferMilestones(usePlaceholders: boolean) {
   // Get a list of all milestones associated with this project
   // FIXME: don't use type join but ensure everything is milestoneImport
   let milestones: (GitLabMilestone | MilestoneImport)[] =
-    await gitlabApi.ProjectMilestones.all(settings.gitlab.projectId);
+    await gitlabApi.ProjectMilestones.all(settings.gitlab.projectId as number);
 
   // sort milestones in ascending order of when they were created (by id)
   milestones = milestones.sort((a, b) => a.id - b.id);
@@ -347,7 +373,7 @@ async function transferLabels(attachmentLabel = true, useLowerCase = true) {
 
   // Get a list of all labels associated with this project
   let labels: SimpleLabel[] = await gitlabApi.Labels.all(
-    settings.gitlab.projectId
+    settings.gitlab.projectId as number
   );
 
   // get a list of the current label names in the new GitHub repo (likely to be just the defaults)
@@ -425,7 +451,7 @@ async function transferIssues() {
   // get a list of all GitLab issues associated with this project
   // TODO return all issues via pagination
   let issues = (await gitlabApi.Issues.all({
-    projectId: settings.gitlab.projectId,
+    projectId: settings.gitlab.projectId as number,
     labels: settings.filterByLabel,
   })) as GitLabIssue[];
 
@@ -534,7 +560,7 @@ async function transferMergeRequests() {
   // Get a list of all pull requests (merge request equivalent) associated with
   // this project
   let mergeRequests = await gitlabApi.MergeRequests.all({
-    projectId: settings.gitlab.projectId,
+    projectId: settings.gitlab.projectId as number,
     labels: settings.filterByLabel,
   });
 
@@ -624,7 +650,7 @@ async function transferReleases() {
   inform('Transferring Releases');
 
   // Get a list of all releases associated with this project
-  let releases = await gitlabApi.Releases.all(settings.gitlab.projectId);
+  let releases = await gitlabApi.Releases.all(settings.gitlab.projectId as number);
 
   // Sort releases in ascending order of their release date
   releases = releases.sort((a, b) => {
@@ -685,7 +711,7 @@ async function logMergeRequests(logFile: string) {
   // get a list of all GitLab merge requests associated with this project
   // TODO return all MRs via pagination
   let mergeRequests = await gitlabApi.MergeRequests.all({
-    projectId: settings.gitlab.projectId,
+    projectId: settings.gitlab.projectId as number,
     labels: settings.filterByLabel,
   });
 
@@ -696,11 +722,11 @@ async function logMergeRequests(logFile: string) {
 
   for (let mr of mergeRequests) {
     let mergeRequestDiscussions = await gitlabApi.MergeRequestDiscussions.all(
-      settings.gitlab.projectId,
+      settings.gitlab.projectId as number,
       mr.iid
     );
     let mergeRequestNotes = await gitlabApi.MergeRequestNotes.all(
-      settings.gitlab.projectId,
+      settings.gitlab.projectId as number,
       mr.iid,
       {}
     );

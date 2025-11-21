@@ -41,7 +41,9 @@ export class GitlabHelper {
     this.gitlabApi = gitlabApi;
     this.gitlabUrl = gitlabSettings.url;
     this.gitlabToken = gitlabSettings.token;
-    this.gitlabProjectId = gitlabSettings.projectId;
+    this.gitlabProjectId = Array.isArray(gitlabSettings.projectId)
+          ? gitlabSettings.projectId[0] || 0
+          : gitlabSettings.projectId;
     this.host = gitlabSettings.url ? gitlabSettings.url : 'https://gitlab.com';
     this.host = this.host.endsWith('/')
       ? this.host.substring(0, this.host.length - 1)
