@@ -3,11 +3,88 @@ import settings from '../settings';
 import * as mime from 'mime-types';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import * as fs from 'fs';
 import S3 from 'aws-sdk/clients/s3';
 import { GitlabHelper } from './gitlabHelper';
 
 export const sleep = (milliseconds: number) => {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
+};
+
+/**
+ * Reads project IDs from a CSV file.
+ * Supports:
+ * - Single column or multi-column CSV files
+ * - One project ID per line or comma-separated
+ * - Comments (lines starting with #)
+ * - Header row detection (skips non-numeric first line)
+ * - Configurable column index for multi-column CSVs
+ * 
+ * @param filePath Path to the CSV file
+ * @param columnIndex Column index (0-based) to read from. Default: 0 (first column)
+ * @returns Array of project IDs
+ */
+export const readProjectIdsFromCsv = (filePath: string, columnIndex: number = 0): number[] => {
+  try {
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`CSV file not found: ${filePath}`);
+    }
+
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const lines = content.split(/\r?\n/);
+    const projectIds: number[] = [];
+    let headerSkipped = false;
+
+    console.log(`Reading project IDs from column ${columnIndex} (0-based index) in: ${filePath}`);
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      // Skip empty lines and comments
+      if (!line || line.startsWith('#')) {
+        continue;
+      }
+
+      // Split by comma to handle comma-separated values
+      const values = line.split(',').map(v => v.trim());
+
+      // Check if columnIndex is valid for this row
+      if (columnIndex >= values.length) {
+        console.warn(`Warning: Line ${i + 1} has only ${values.length} column(s), skipping (need column ${columnIndex})`);
+        continue;
+      }
+
+      const value = values[columnIndex];
+      
+      if (!value) continue;
+
+      const num = parseInt(value, 10);
+      
+      // Skip header row (non-numeric values) - only check first data line
+      if (!headerSkipped && isNaN(num)) {
+        console.log(`Skipping CSV header row: "${line}"`);
+        headerSkipped = true;
+        continue;
+      }
+
+      if (isNaN(num)) {
+        console.warn(`Warning: Line ${i + 1}, Column ${columnIndex}: Skipping invalid project ID: "${value}"`);
+        continue;
+      }
+
+      projectIds.push(num);
+    }
+
+    if (projectIds.length === 0) {
+      throw new Error(`No valid project IDs found in CSV file: ${filePath} (column ${columnIndex})`);
+    }
+
+    console.log(`✓ Loaded ${projectIds.length} project ID(s) from CSV column ${columnIndex}`);
+    return projectIds;
+  } catch (err) {
+    console.error(`Error reading CSV file: ${err.message}`);
+    throw err;
+  }
 };
 
 // Creates new attachments and replaces old links

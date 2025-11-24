@@ -59,7 +59,9 @@ export interface GithubSettings {
 export interface GitlabSettings {
   url?: string;
   token: string;
-  projectId: number;
+  projectId: number | number[];
+  projectIdCsvFile?: string;
+  projectIdCsvColumn?: number;
   listArchivedProjects?: boolean;
   sessionCookie: string;
 }
